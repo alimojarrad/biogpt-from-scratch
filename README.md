@@ -118,19 +118,23 @@ Correctness was validated through:
 
 ```
 biogpt-from-scratch/
+├── generate.py
+├── README.md
+├── requirements.txt
+│
+├── BioGPT_weights/
+│   └── pytorch_model.bin
+│   └── README.md
 │
 ├── src/
 │   ├── model.py
-│   ├── loading_weight.py
-│   ├── generation.py
-│   └── __init__.py
+│   └── loading_weight.py
 │
-├── biogpt_weights/
-│   └── README.md
-│
-├── generate.py
-├── requirements.txt
-└── README.md
+└── Tokenizer/
+    ├── tokenizer.py
+    ├── vocab.json
+    ├── merges.txt
+    └── README.md
 ```
 
 ---
