@@ -263,7 +263,7 @@ class BioGPTTokenizer:
     def __len__(self) -> int:
         return len(self.encoder)
 
-    def __repr__(self) -> str:
-        backend = "sacremoses" if self._use_sacremoses else "built-in fallback"
-        return (f"BioGPTTokenizer(vocab_size={len(self)}, "
-                f"bpe_merges={len(self.bpe_ranks)}, moses={backend})")
+    # def __repr__(self) -> str:
+    #     backend = "sacremoses" if self._use_sacremoses else "built-in fallback"
+    #     return (f"BioGPTTokenizer(vocab_size={len(self)}, "
+    #             f"bpe_merges={len(self.bpe_ranks)}, moses={backend})")
