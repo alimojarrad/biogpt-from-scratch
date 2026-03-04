@@ -38,16 +38,9 @@ def generate_stream(
 ):
     tokens_generated = 0
     decoded_so_far = tokenizer.decode(idx[0].tolist(), skip_special_tokens=True)
-
-    # ── Prefill ───────────────────────────────────────────────────────────────
-    # Forward the full prompt once to populate the KV cache.
-    # idx is trimmed to context_size to respect the model's max length.
     idx_cond = idx[:, -context_size:]
     logits, kv_caches = model(idx_cond, kv_caches=None)
     logits = logits[:, -1, :]
-
-    # Apply repetition penalty, temperature, min-token EOS suppression, top-k,
-    # then sample — same logic as the original loop, factored into a helper below.
     idx_next = _sample(
         logits, idx, tokens_generated,
         temperature, top_k, eos_id, min_new_tokens, repetition_penalty,
@@ -62,10 +55,6 @@ def generate_stream(
     print(full_text[len(decoded_so_far):], end="", flush=True)
     decoded_so_far = full_text
     tokens_generated += 1
-
-    # ── Decode ────────────────────────────────────────────────────────────────
-    # Each step forwards only the single new token; all previous context is
-    # served from the KV cache — no redundant recomputation over the prompt.
     for _ in range(max_new_tokens - 1):
         logits, kv_caches = model(idx_next, kv_caches=kv_caches)
         logits = logits[:, -1, :]

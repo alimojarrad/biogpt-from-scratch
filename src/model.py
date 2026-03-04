@@ -162,6 +162,3 @@ class Model(nn.Module):
 
     def calculate_params(self):
         return f"{sum(p.numel() for p in self.parameters()) - sum(p.numel() for p in self.out_proj.parameters()):,}"
-args = Args()
-model = Model(args)
-print(model.calculate_params())
