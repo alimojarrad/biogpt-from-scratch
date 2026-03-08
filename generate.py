@@ -2,15 +2,75 @@ import torch
 import argparse
 from Tokenizer.tokenizer import BioGPTTokenizer
 from src.model import Model, Args
+import torch.nn as nn
 from src.loading_weight import apply_weights
+from torch.quantization import quantize_dynamic
+_SKIP_TYPES = (nn.Embedding, nn.LayerNorm, nn.Dropout)
 
 
-def load_model(device: str):
+def _is_sensitive(module: nn.Module) -> bool:
+    return isinstance(module, _SKIP_TYPES)
+
+
+def quantize_model(model: nn.Module, mode: str = "int8") -> nn.Module:
+    mode = mode.lower()
+
+    if mode == "int8":
+        return _quantize_int8(model)
+    elif mode == "fp16":
+        return _cast(model, torch.float16)
+    elif mode == "bf16":
+        if not torch.cuda.is_bf16_supported():
+            print("[quantize] WARNING: bf16 not supported on this hardware, falling back to fp16.")
+            return _cast(model, torch.float16)
+        return _cast(model, torch.bfloat16)
+    else:
+        raise ValueError(f"Unknown quantization mode '{mode}'. Choose 'int8', 'fp16', or 'bf16'.")
+
+
+
+def _quantize_int8(model: nn.Module) -> nn.Module:
+    print("[quantize] Applying dynamic INT8 quantization to all nn.Linear layers …")
+
+    model = quantize_dynamic(
+        model,
+        qconfig_spec={nn.Linear},
+        dtype=torch.qint8,
+        inplace=False,
+    )
+
+    _report(model)
+    return model
+
+
+def _cast(model: nn.Module, dtype: torch.dtype) -> nn.Module:
+    label = {torch.float16: "fp16", torch.bfloat16: "bf16"}.get(dtype, str(dtype))
+    print(f"[quantize] Casting model to {label} …")
+    model = model.to(dtype)
+    _report(model)
+    return model
+
+
+def _report(model: nn.Module) -> None:
+    total_bytes = sum(
+        p.element_size() * p.numel()
+        for p in model.parameters()
+    )
+    buf_bytes = sum(
+        b.element_size() * b.numel()
+        for b in model.buffers()
+    )
+    total_mb = (total_bytes + buf_bytes) / (1024 ** 2)
+    print(f"[quantize] Estimated model memory: {total_mb:.1f} MB  "
+          f"(params {total_bytes/(1024**2):.1f} MB + buffers {buf_bytes/(1024**2):.1f} MB)")
+def load_model(device: str ,quantize: str | None = None):
     args = Args()
     model = Model(args)
     model.to(device)
     apply_weights(model, args)
     model.eval()
+    if quantize:
+        model = quantize_model(model, mode=quantize)
     return model, args
 
 
@@ -21,7 +81,24 @@ def text_to_token_ids(text: str, tokenizer: BioGPTTokenizer, device: str) -> tor
 
 def token_ids_to_text(ids: torch.Tensor, tokenizer: BioGPTTokenizer) -> str:
     return tokenizer.decode(ids.tolist(), skip_special_tokens=True)
+import time
+import os
 
+logo = r"""
+██████╗ ██╗ ██████╗  ██████╗ ██████╗ ████████╗
+██╔══██╗██║██╔═══██╗██╔════╝ ██╔══██╗╚══██╔══╝
+██████╔╝██║██║   ██║██║  ███╗██████╔╝   ██║   
+██╔══██╗██║██║   ██║██║   ██║██╔═══╝    ██║   
+██████╔╝██║╚██████╔╝╚██████╔╝██║        ██║   
+╚═════╝ ╚═╝ ╚═════╝  ╚═════╝ ╚═╝        ╚═╝   
+
+        Biomedical Language Model
+"""
+
+os.system("clear")
+print("\033[96m" + logo + "\033[0m")
+
+time.sleep(2)
 
 @torch.no_grad()
 def generate_stream(
@@ -112,18 +189,19 @@ def _sample(
 
 def main():
     parser = argparse.ArgumentParser(description="BioGPT Text Generation")
-    parser.add_argument("--max_new_tokens",     type=int,   default=100)
+    parser.add_argument("--max_new_tokens",     type=int,   default=200)
     parser.add_argument("--temperature",        type=float, default=0.6)
     parser.add_argument("--top_k",              type=int,   default=40)
     parser.add_argument("--num_samples",        type=int,   default=1)
-    parser.add_argument("--min_new_tokens",     type=int,   default=20)
+    parser.add_argument("--min_new_tokens",     type=int,   default=50)
     parser.add_argument("--repetition_penalty", type=float, default=1.0)
+    parser.add_argument("--quantize", choices=["int8", "fp16", "bf16"])
     args_cli = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    model, model_args = load_model(device, quantize=args_cli.quantize)
 
     tokenizer = BioGPTTokenizer("Tokenizer/vocab.json", "Tokenizer/merges.txt")
-    model, model_args = load_model(device)
 
     print("\nType 'quit' to exit.\n")
 

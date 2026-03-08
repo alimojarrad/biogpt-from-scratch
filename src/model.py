@@ -4,6 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
 from typing import Optional, Tuple
+
+
 @dataclass
 class Args:
     vocab_size : int = 42384
@@ -35,15 +37,18 @@ class CasualAttention(nn.Module):
         self.num_head = num_heads
         self.d_out = d_out
         self.head_dim = d_out // num_heads
+        self.dropout_rate = dropout_rate
         self.W_query = nn.Linear(d_in, d_out, bias=bias)
         self.W_key = nn.Linear(d_in, d_out, bias=bias)
         self.W_value = nn.Linear(d_in, d_out, bias=bias)
         self.out_proj = nn.Linear(d_out, d_out, bias=bias)
         self.dropout = nn.Dropout(p=dropout_rate)
+
         self.register_buffer(
             "mask",
             torch.triu(torch.ones(context_length, context_length), diagonal=1)
         )
+        self._use_flash = hasattr(F, "scaled_dot_product_attention")
 
     def forward(
         self,
@@ -64,19 +69,40 @@ class CasualAttention(nn.Module):
         new_kv_cache = (keys, values)
 
         T_total = keys.size(2)
+        dropout_p = self.dropout_rate if self.training else 0.0
 
-        attn_score = queries @ keys.transpose(2, 3)
-        T_q_offset = T_total - T_new
-        mask_bool = self.mask.bool()
+        if self._use_flash:
+            if T_new == T_total:
+                context_vector = F.scaled_dot_product_attention(
+                    queries, keys, values,
+                    attn_mask=None,
+                    dropout_p=dropout_p,
+                    is_causal=True,
+                )
+            else:
+                T_q_offset = T_total - T_new
+                attn_mask = torch.zeros(
+                    T_new, T_total, dtype=queries.dtype, device=queries.device
+                )
+                mask_bool = self.mask.bool()[T_q_offset: T_q_offset + T_new, :T_total]
+                attn_mask.masked_fill_(mask_bool, float("-inf"))
+                context_vector = F.scaled_dot_product_attention(
+                    queries, keys, values,
+                    attn_mask=attn_mask,
+                    dropout_p=dropout_p,
+                    is_causal=False,
+                )
+        else:
+            T_q_offset = T_total - T_new
+            attn_score = queries @ keys.transpose(2, 3)
+            mask_bool  = self.mask.bool()
+            attn_mask  = mask_bool[T_q_offset: T_q_offset + T_new, :T_total]
+            attn_score = attn_score.masked_fill(attn_mask, float("-inf"))
+            attn_weight = torch.softmax(attn_score / (self.head_dim ** 0.5), dim=-1)
+            attn_weight = self.dropout(attn_weight)
+            context_vector = attn_weight @ values
 
-        attn_mask = mask_bool[T_q_offset: T_q_offset + T_new, :T_total]
-        attn_score = attn_score.masked_fill(attn_mask, float('-inf'))
-
-        attn_weight = torch.softmax(attn_score / (self.head_dim ** 0.5), dim=-1)
-        attn_weight = self.dropout(attn_weight)
-
-        context_vector = (attn_weight @ values).transpose(1, 2)
-        context_vector = context_vector.contiguous().view(B, T_new, self.d_out)
+        context_vector = context_vector.transpose(1, 2).contiguous().view(B, T_new, self.d_out)
         context_vector = self.out_proj(context_vector)
 
         return context_vector, new_kv_cache
