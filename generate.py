@@ -21,7 +21,7 @@ def quantize_model(model: nn.Module, mode: str = "int8") -> nn.Module:
         return _cast(model, torch.float16)
     elif mode == "bf16":
         if not torch.cuda.is_bf16_supported():
-            print("[quantize] WARNING: bf16 not supported on this hardware, falling back to fp16.")
+            # print("[quantize] WARNING: bf16 not supported on this hardware, falling back to fp16.")
             return _cast(model, torch.float16)
         return _cast(model, torch.bfloat16)
     else:
@@ -30,7 +30,7 @@ def quantize_model(model: nn.Module, mode: str = "int8") -> nn.Module:
 
 
 def _quantize_int8(model: nn.Module) -> nn.Module:
-    print("[quantize] Applying dynamic INT8 quantization to all nn.Linear layers …")
+    # print("[quantize] Applying dynamic INT8 quantization to all nn.Linear layers …")
 
     model = quantize_dynamic(
         model,
@@ -45,7 +45,7 @@ def _quantize_int8(model: nn.Module) -> nn.Module:
 
 def _cast(model: nn.Module, dtype: torch.dtype) -> nn.Module:
     label = {torch.float16: "fp16", torch.bfloat16: "bf16"}.get(dtype, str(dtype))
-    print(f"[quantize] Casting model to {label} …")
+    # print(f"[quantize] Casting model to {label} …")
     model = model.to(dtype)
     _report(model)
     return model
@@ -61,8 +61,8 @@ def _report(model: nn.Module) -> None:
         for b in model.buffers()
     )
     total_mb = (total_bytes + buf_bytes) / (1024 ** 2)
-    print(f"[quantize] Estimated model memory: {total_mb:.1f} MB  "
-          f"(params {total_bytes/(1024**2):.1f} MB + buffers {buf_bytes/(1024**2):.1f} MB)")
+    # print(f"[quantize] Estimated model memory: {total_mb:.1f} MB  "
+    #       f"(params {total_bytes/(1024**2):.1f} MB + buffers {buf_bytes/(1024**2):.1f} MB)")
 def load_model(device: str ,quantize: str | None = None):
     args = Args()
     model = Model(args)

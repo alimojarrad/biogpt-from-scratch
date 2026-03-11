@@ -17,6 +17,7 @@ class Args:
     context_length : int = 1024
     eps : float = 1e-12
     bias : bool = True
+    initializer_range: float = 0.02
 
 
 class FeedForward(nn.Module):
@@ -160,7 +161,7 @@ class Model(nn.Module):
         self.trf_layers = nn.Sequential(*[Transformer(args) for _ in range(args.layers)])
         self.out_proj = nn.Linear(args.dim, args.vocab_size, bias=False)
         self.embed_scale = math.sqrt(args.dim)
-
+        self.apply(self._init_weights)
     def forward(
         self,
         x_in: torch.Tensor,
@@ -185,6 +186,14 @@ class Model(nn.Module):
         x = self.final_norm(x)
         logits = self.out_proj(x)
         return logits, new_kv_caches
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0.0, std=self.args.initializer_range)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+        elif isinstance(module, nn.Embedding):
+            nn.init.normal_(module.weight, mean=0.0, std=self.args.initializer_range)
 
     def calculate_params(self):
         return f"{sum(p.numel() for p in self.parameters()) - sum(p.numel() for p in self.out_proj.parameters()):,}"
